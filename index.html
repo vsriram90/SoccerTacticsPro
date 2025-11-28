@@ -60,164 +60,199 @@
         };
 
         // --- UTILS / FORMATIONS ---
-        const generateInitialEntities = (squadSize, scenario = 'kickoff') => {
+        const generateInitialEntities = (squadSize, scenario = 'kickoff', activeSide = 'home') => {
             const entities = [];
             
-            // 1. Define Ball & GK Positions
             let ballPos = { x: 50, y: 50 };
-            let homeGkPos = { x: 4, y: 50 };
-            let awayGkPos = { x: 96, y: 50 };
-            
-            switch (scenario) {
-                case 'goal_kick':
-                ballPos = { x: 9, y: 50 }; 
-                homeGkPos = { x: 3, y: 50 };
-                awayGkPos = { x: 92, y: 50 };
-                break;
-                case 'corner':
-                ballPos = { x: 0, y: 0 }; 
-                homeGkPos = { x: 4, y: 48 }; 
-                awayGkPos = { x: 90, y: 50 };
-                break;
-                case 'throw_in':
-                ballPos = { x: 50, y: 2 }; 
-                break;
-                case 'counter_attack':
-                ballPos = { x: 42, y: 52 }; 
-                homeGkPos = { x: 6, y: 50 }; 
-                awayGkPos = { x: 94, y: 50 }; 
-                break;
-                default:
-                ballPos = { x: 50, y: 50 };
-            }
 
-            entities.push({ id: 'ball', type: 'ball', pos: ballPos });
+            const isHomeActive = activeSide === 'home';
+            const mirrorX = (x) => 100 - x;
 
-            // Helper to add players
+            const addRelativePlayer = (baseId, baseSide, role, basePos, num) => {
+                let finalX = basePos.x;
+                let finalSide = baseSide;
+                
+                if (!isHomeActive) {
+                    finalX = mirrorX(basePos.x);
+                    finalSide = baseSide === 'home' ? 'away' : 'home'; 
+                }
+                
+                let finalId = baseId;
+                if (!isHomeActive) {
+                    finalId = baseId.startsWith('h-') ? baseId.replace('h-', 'a-') : baseId.replace('a-', 'h-');
+                }
+
+                entities.push({ 
+                    id: finalId, 
+                    type: 'player', 
+                    side: finalSide, 
+                    role, 
+                    pos: { x: finalX, y: basePos.y }, 
+                    number: num 
+                });
+            };
+
             const addPlayer = (id, side, role, pos, num) => {
                 entities.push({ id, type: 'player', side, role, pos, number: num });
             };
 
-            // Add GKs
-            addPlayer('h-gk', 'home', 'GK', homeGkPos, 1);
-            addPlayer('a-gk', 'away', 'GK', awayGkPos, 1);
-
-            // 2. Define Outfield Player Positions
             const outfieldCount = squadSize - 1;
-            let hIdx = 2;
-            let aIdx = 2;
+            let allyIdx = 2; 
+            let oppIdx = 2; 
 
             if (scenario === 'kickoff') {
+                ballPos = { x: 50, y: 50 };
+                
+                addPlayer('h-gk', 'home', 'GK', { x: 4, y: 50 }, 1);
+                addPlayer('a-gk', 'away', 'GK', { x: 96, y: 50 }, 1);
+
                 const formations = {
-                2: [2], 4: [2, 2], 6: [2, 3, 1], 8: [3, 3, 2], 10: [4, 4, 2],
+                    2: [2], 4: [2, 2], 6: [2, 3, 1], 8: [3, 3, 2], 10: [4, 4, 2],
                 };
                 const rows = formations[outfieldCount] || [outfieldCount];
                 const startX = 20; const endX = 45; 
                 const xStep = (endX - startX) / (rows.length || 1);
 
-                // Home
+                let hCount = 2;
                 rows.forEach((count, rowIndex) => {
-                const x = startX + (rowIndex * xStep);
-                const yStep = 100 / (count + 1);
-                for (let i = 0; i < count; i++) {
-                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x, y: yStep * (i + 1) }, hIdx++);
-                }
+                    const x = startX + (rowIndex * xStep);
+                    const yStep = 100 / (count + 1);
+                    for (let i = 0; i < count; i++) {
+                        addPlayer(`h-p-${hCount}`, 'home', 'Player', { x, y: yStep * (i + 1) }, hCount++);
+                    }
                 });
-                // Away (Mirrored)
+
+                let aCount = 2;
                 rows.forEach((count, rowIndex) => {
-                const x = (100 - startX) - (rowIndex * xStep);
-                const yStep = 100 / (count + 1);
-                for (let i = 0; i < count; i++) {
-                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x, y: 100 - (yStep * (i + 1)) }, aIdx++);
-                }
+                    const x = (100 - startX) - (rowIndex * xStep);
+                    const yStep = 100 / (count + 1);
+                    for (let i = 0; i < count; i++) {
+                        addPlayer(`a-p-${aCount}`, 'away', 'Player', { x, y: 100 - (yStep * (i + 1)) }, aCount++);
+                    }
                 });
 
             } else if (scenario === 'goal_kick') {
-                // Home Defenders
-                addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 12, y: 20 }, 2);
-                if (outfieldCount > 1) addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 12, y: 80 }, 3);
+                ballPos = isHomeActive ? { x: 9, y: 50 } : { x: 91, y: 50 };
+
+                addRelativePlayer('h-gk', 'home', 'GK', { x: 3, y: 50 }, 1);
+                addRelativePlayer('a-gk', 'away', 'GK', { x: 96, y: 50 }, 1);
+
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 12, y: 20 }, 2);
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 12, y: 80 }, 3);
                 
-                // Away Pressing Front Line
                 const pressCount = Math.min(outfieldCount, 3);
                 for (let i = 0; i < pressCount; i++) {
+                    if (oppIdx > squadSize) break;
                     const y = 30 + (i * (40 / Math.max(pressCount - 1, 1)));
-                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 28 + (i%2)*5, y: y }, aIdx++);
+                    addRelativePlayer(`a-p-${oppIdx}`, 'away', 'Player', { x: 28 + (i%2)*5, y: y }, oppIdx++);
                 }
 
-                // Home Midfielders
-                const hasStriker = outfieldCount > 2;
-                const homeMidsNeeded = Math.max(0, outfieldCount - 2 - (hasStriker ? 1 : 0));
-                
-                if (homeMidsNeeded > 0) {
-                    const startY = 15;
-                    const endY = 85;
-                    const step = (endY - startY) / (homeMidsNeeded + 1);
-                    for(let i=0; i < homeMidsNeeded; i++) {
-                        addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 35 + (i%2)*3, y: startY + (step * (i+1)) }, hIdx++);
+                const remainingAlly = squadSize - allyIdx + 1;
+                if (remainingAlly > 0) {
+                    const hasStriker = remainingAlly > 0;
+                    if (hasStriker && remainingAlly === 1) {
+                         addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 48, y: 50 }, allyIdx);
+                    } else {
+                         const mids = remainingAlly - 1;
+                         const startY = 15;
+                         const endY = 85;
+                         const step = (endY - startY) / (mids + 1);
+                         for(let i=0; i < mids; i++) {
+                            addRelativePlayer(`h-p-${allyIdx}`, 'home', 'Player', { x: 35 + (i%2)*3, y: startY + (step * (i+1)) }, allyIdx++);
+                         }
+                         addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 48, y: 50 }, allyIdx);
                     }
                 }
-                
-                if (hasStriker) {
-                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 48, y: 50 }, hIdx++);
-                }
 
-                // Away Defenders
-                const awayDefNeeded = outfieldCount - pressCount;
-                if (awayDefNeeded > 0) {
+                const remainingOpp = squadSize - oppIdx + 1;
+                if (remainingOpp > 0) {
                     const startY = 20;
                     const endY = 80;
-                    const step = (endY - startY) / (awayDefNeeded + 1);
-                    for(let i=0; i < awayDefNeeded; i++) {
-                        addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 65 - (i%2)*5, y: startY + (step * (i+1)) }, aIdx++);
+                    const step = (endY - startY) / (remainingOpp + 1);
+                    for(let i=0; i < remainingOpp; i++) {
+                        addRelativePlayer(`a-p-${oppIdx}`, 'away', 'Player', { x: 65 - (i%2)*5, y: startY + (step * (i+1)) }, oppIdx++);
                     }
                 }
 
             } else if (scenario === 'corner') {
-                addPlayer(`a-p-${aIdx++}`, 'away', 'Player', { x: 2, y: 2 }, 2);
-                const boxCountH = Math.min(outfieldCount, 5);
-                const boxCountA = Math.min(outfieldCount - 1, 4);
-                for(let i=0; i<boxCountH; i++) addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 5 + (Math.random()*10), y: 35 + (Math.random()*25) }, hIdx++);
-                for(let i=0; i<boxCountA; i++) addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 7 + (Math.random()*10), y: 35 + (Math.random()*25) }, aIdx++);
-                while(hIdx <= squadSize) addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 25, y: 40 + (Math.random()*20) }, hIdx++);
-                while(aIdx <= squadSize) addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 25, y: 40 + (Math.random()*20) }, aIdx++);
+                ballPos = isHomeActive ? { x: 98.5, y: 1.5 } : { x: 1.5, y: 1.5 };
+                
+                addRelativePlayer('a-gk', 'away', 'GK', { x: 96, y: 50 }, 1);
+                addRelativePlayer('h-gk', 'home', 'GK', { x: 4, y: 50 }, 1);
+
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 96.5, y: 3.5 }, 2);
+
+                const remainingHome = squadSize - allyIdx + 1;
+                const boxCountAtt = Math.min(remainingHome, 5);
+                const remainingAway = squadSize - oppIdx + 1;
+                const boxCountDef = Math.min(remainingAway, 5);
+
+                for(let i=0; i<boxCountAtt; i++) {
+                    addRelativePlayer(`h-p-${allyIdx}`, 'home', 'Player', { x: 88 + (Math.random()*10), y: 35 + (Math.random()*30) }, allyIdx++);
+                }
+                for(let i=0; i<boxCountDef; i++) {
+                    addRelativePlayer(`a-p-${oppIdx}`, 'away', 'Player', { x: 90 + (Math.random()*8), y: 35 + (Math.random()*30) }, oppIdx++);
+                }
+
+                while(allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx}`, 'home', 'Player', { x: 65, y: 40 + (Math.random()*20) }, allyIdx++);
+                while(oppIdx <= squadSize) addRelativePlayer(`a-p-${oppIdx}`, 'away', 'Player', { x: 75, y: 40 + (Math.random()*20) }, oppIdx++);
 
             } else if (scenario === 'throw_in') {
-                addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 50, y: 1 }, 2);
-                const remainingHome = squadSize - hIdx + 1;
-                for (let i = 0; i < remainingHome; i++) {
-                    const x = 35 + (Math.random() * 30);
-                    const y = 10 + (Math.random() * 50);
-                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x, y }, hIdx++);
+                ballPos = isHomeActive ? { x: 70, y: 5 } : { x: 30, y: 5 };
+
+                addRelativePlayer('h-gk', 'home', 'GK', { x: 4, y: 50 }, 1);
+                addRelativePlayer('a-gk', 'away', 'GK', { x: 96, y: 50 }, 1);
+
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 70, y: 1 }, 2);
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 65, y: 15 }, 3);
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 75, y: 15 }, 4);
+                
+                if (oppIdx <= squadSize) addRelativePlayer(`a-p-${oppIdx++}`, 'away', 'Player', { x: 68, y: 12 }, 2);
+                if (oppIdx <= squadSize) addRelativePlayer(`a-p-${oppIdx++}`, 'away', 'Player', { x: 72, y: 18 }, 3);
+
+                while(allyIdx <= squadSize) {
+                    addRelativePlayer(`h-p-${allyIdx}`, 'home', 'Player', { x: 50 + (Math.random() * 40), y: 20 + (Math.random() * 60) }, allyIdx++);
                 }
-                const remainingAway = squadSize - aIdx + 1;
-                for (let i = 0; i < remainingAway; i++) {
-                    const x = 35 + (Math.random() * 30);
-                    const y = 10 + (Math.random() * 50);
-                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x, y }, aIdx++);
+                while(oppIdx <= squadSize) {
+                    addRelativePlayer(`a-p-${oppIdx}`, 'away', 'Player', { x: 50 + (Math.random() * 40), y: 20 + (Math.random() * 60) }, oppIdx++);
                 }
 
             } else if (scenario === 'counter_attack') {
-                addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 40, y: 50 }, 10);
-                if (outfieldCount > 1) addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 60, y: 20 }, 7); 
-                if (outfieldCount > 2) addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 60, y: 80 }, 11); 
-                if (outfieldCount > 0) addPlayer(`a-p-${aIdx++}`, 'away', 'Player', { x: 65, y: 50 }, 4); 
-                if (outfieldCount > 1) addPlayer(`a-p-${aIdx++}`, 'away', 'Player', { x: 55, y: 30 }, 2); 
-                const strandedCount = Math.max(0, outfieldCount - 2);
+                ballPos = isHomeActive ? { x: 58, y: 50 } : { x: 42, y: 50 };
+
+                addRelativePlayer('h-gk', 'home', 'GK', { x: 4, y: 50 }, 1);
+                addRelativePlayer('a-gk', 'away', 'GK', { x: 96, y: 50 }, 1);
+
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 55, y: 50 }, 10);
+
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 70, y: 20 }, 7); 
+                if (allyIdx <= squadSize) addRelativePlayer(`h-p-${allyIdx++}`, 'home', 'Player', { x: 70, y: 80 }, 11); 
+
+                if (oppIdx <= squadSize) addRelativePlayer(`a-p-${oppIdx++}`, 'away', 'Player', { x: 80, y: 50 }, 4); 
+                if (oppIdx <= squadSize) addRelativePlayer(`a-p-${oppIdx++}`, 'away', 'Player', { x: 75, y: 35 }, 2); 
+
+                // Stranded Attackers - Trailing close
+                const remainingOpp = squadSize - oppIdx + 1;
+                const strandedCount = Math.max(0, remainingOpp - 1);
+                
                 for(let i=0; i<strandedCount; i++) {
-                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 20 + (Math.random()*10), y: 20 + (Math.random()*60) }, aIdx++);
+                    addRelativePlayer(`a-p-${oppIdx}`, 'away', 'Player', { x: 35 + (Math.random()*10), y: 20 + (Math.random()*60) }, oppIdx++);
                 }
-                while(hIdx <= squadSize) {
-                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 25 + (Math.random()*5), y: 30 + (Math.random()*40) }, hIdx++);
+
+                while(allyIdx <= squadSize) {
+                    addRelativePlayer(`h-p-${allyIdx}`, 'home', 'Player', { x: 40 + (Math.random()*5), y: 30 + (Math.random()*40) }, allyIdx++);
                 }
-                while(aIdx <= squadSize) addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 50, y: 50 }, aIdx++);
+                while(oppIdx <= squadSize) addRelativePlayer(`a-p-${oppIdx}`, 'away', 'Player', { x: 50, y: 50 }, oppIdx++);
             }
+
+            entities.push({ id: 'ball', type: 'ball', pos: ballPos });
 
             return entities;
         };
 
         // --- COMPONENTS ---
 
-        const Controls = ({ config, onConfigChange, toolMode, onToolChange, onClearAnnotations, onResetBoard, onLoadScenario, onUndo, canUndo }) => {
+        const Controls = ({ config, onConfigChange, toolMode, onToolChange, onClearAnnotations, onResetBoard, onLoadScenario, onUndo, canUndo, activeSide, onActiveSideChange }) => {
             return (
                 <div className="flex flex-row items-center gap-3 px-3 py-2 w-full max-w-[100vw] overflow-x-auto no-scrollbar touch-pan-x bg-gray-800 text-sm h-14 md:h-16">
                 
@@ -240,6 +275,33 @@
                         {size}
                     </button>
                     ))}
+                </div>
+
+                <div className="w-px h-8 bg-gray-700 mx-1 flex-shrink-0"></div>
+
+                <div className="flex items-center gap-0 bg-gray-700/50 rounded-lg p-1 flex-shrink-0">
+                    <button
+                        onClick={() => onActiveSideChange('home')}
+                        className={`px-2 py-1 md:px-3 md:py-1.5 rounded-l text-xs md:text-sm font-bold transition-all border-r border-gray-600 ${
+                            activeSide === 'home'
+                            ? 'bg-red-600 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-600'
+                        }`}
+                        title="Home Team Active"
+                    >
+                        Home
+                    </button>
+                    <button
+                        onClick={() => onActiveSideChange('away')}
+                        className={`px-2 py-1 md:px-3 md:py-1.5 rounded-r text-xs md:text-sm font-bold transition-all ${
+                            activeSide === 'away'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-600'
+                        }`}
+                        title="Away Team Active"
+                    >
+                        Away
+                    </button>
                 </div>
 
                 <div className="w-px h-8 bg-gray-700 mx-1 flex-shrink-0"></div>
@@ -619,8 +681,6 @@
             );
         };
 
-        // --- APP ---
-
         const App = () => {
             const [config, setConfig] = useState({
                 squadSize: 7,
@@ -632,9 +692,10 @@
             const [annotations, setAnnotations] = useState([]);
             const [history, setHistory] = useState([]);
             const [toolMode, setToolMode] = useState('interact');
+            const [activeSide, setActiveSide] = useState('home');
 
             useEffect(() => {
-                setEntities(generateInitialEntities(config.squadSize, 'kickoff'));
+                setEntities(generateInitialEntities(config.squadSize, 'kickoff', activeSide));
                 setAnnotations([]); 
                 setHistory([]);
             }, [config.squadSize]);
@@ -664,13 +725,17 @@
             };
 
             const handleLoadScenario = (scenario) => {
-                setEntities(generateInitialEntities(config.squadSize, scenario));
+                setEntities(generateInitialEntities(config.squadSize, scenario, activeSide));
                 setAnnotations([]);
                 setHistory([]);
             };
 
             const handleResetBoard = () => {
                 handleLoadScenario('kickoff');
+            };
+            
+            const handleActiveSideChange = (side) => {
+                setActiveSide(side);
             };
 
             return (
@@ -687,6 +752,8 @@
                         onLoadScenario={handleLoadScenario}
                         onUndo={handleUndo}
                         canUndo={history.length > 0}
+                        activeSide={activeSide}
+                        onActiveSideChange={handleActiveSideChange}
                     />
                 </header>
 
