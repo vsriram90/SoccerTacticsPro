@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TacticsPro: Soccer Board (Standalone)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Import Map for Modules -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0"
+      }
+    }
+    </script>
+    <!-- Babel Standalone for compiling JSX/TS in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      body {
+        overscroll-behavior: none;
+        touch-action: none;
+      }
+      .no-select {
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      /* Hide scrollbar for Chrome/Safari/Opera */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      /* Hide scrollbar for IE, Edge and Firefox */
+      .no-scrollbar {
+        -ms-overflow-style: none;  /* IE and Edge */
+        scrollbar-width: none;  /* Firefox */
+      }
+    </style>
+</head>
+<body class="bg-gray-900 text-white h-screen overflow-hidden">
+    <div id="root" class="h-full w-full"></div>
+
+    <script type="text/babel" data-type="module" data-presets="typescript,react">
+        import React, { useState, useEffect, useRef, useCallback } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            Eraser, MousePointer2, Trash2, ArrowRightLeft, Flag, Goal, Footprints, RotateCcw, Undo2 
+        } from 'lucide-react';
+
+        // --- CONSTANTS ---
+        const SQUAD_SIZES = [3, 5, 7, 9, 11];
+
+        const DEFAULT_COLORS = {
+            home: '#ef4444', // Red-500
+            away: '#3b82f6', // Blue-500
+            gk: '#eab308',   // Yellow-500
+            ball: '#ffffff',
+            draw: '#fbbf24'  // Amber-400
+        };
+
+        // --- UTILS / FORMATIONS ---
+        const generateInitialEntities = (squadSize, scenario = 'kickoff') => {
+            const entities = [];
+            
+            // 1. Define Ball & GK Positions
+            let ballPos = { x: 50, y: 50 };
+            let homeGkPos = { x: 4, y: 50 };
+            let awayGkPos = { x: 96, y: 50 };
+            
+            switch (scenario) {
+                case 'goal_kick':
+                ballPos = { x: 9, y: 50 }; 
+                homeGkPos = { x: 3, y: 50 };
+                awayGkPos = { x: 92, y: 50 };
+                break;
+                case 'corner':
+                ballPos = { x: 0, y: 0 }; 
+                homeGkPos = { x: 4, y: 48 }; 
+                awayGkPos = { x: 90, y: 50 };
+                break;
+                case 'throw_in':
+                ballPos = { x: 50, y: 2 }; 
+                break;
+                case 'counter_attack':
+                ballPos = { x: 42, y: 52 }; 
+                homeGkPos = { x: 6, y: 50 }; 
+                awayGkPos = { x: 94, y: 50 }; 
+                break;
+                default:
+                ballPos = { x: 50, y: 50 };
+            }
+
+            entities.push({ id: 'ball', type: 'ball', pos: ballPos });
+
+            // Helper to add players
+            const addPlayer = (id, side, role, pos, num) => {
+                entities.push({ id, type: 'player', side, role, pos, number: num });
+            };
+
+            // Add GKs
+            addPlayer('h-gk', 'home', 'GK', homeGkPos, 1);
+            addPlayer('a-gk', 'away', 'GK', awayGkPos, 1);
+
+            // 2. Define Outfield Player Positions
+            const outfieldCount = squadSize - 1;
+            let hIdx = 2;
+            let aIdx = 2;
+
+            if (scenario === 'kickoff') {
+                const formations = {
+                2: [2], 4: [2, 2], 6: [2, 3, 1], 8: [3, 3, 2], 10: [4, 4, 2],
+                };
+                const rows = formations[outfieldCount] || [outfieldCount];
+                const startX = 20; const endX = 45; 
+                const xStep = (endX - startX) / (rows.length || 1);
+
+                // Home
+                rows.forEach((count, rowIndex) => {
+                const x = startX + (rowIndex * xStep);
+                const yStep = 100 / (count + 1);
+                for (let i = 0; i < count; i++) {
+                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x, y: yStep * (i + 1) }, hIdx++);
+                }
+                });
+                // Away (Mirrored)
+                rows.forEach((count, rowIndex) => {
+                const x = (100 - startX) - (rowIndex * xStep);
+                const yStep = 100 / (count + 1);
+                for (let i = 0; i < count; i++) {
+                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x, y: 100 - (yStep * (i + 1)) }, aIdx++);
+                }
+                });
+
+            } else if (scenario === 'goal_kick') {
+                // Home Defenders
+                addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 12, y: 20 }, 2);
+                if (outfieldCount > 1) addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 12, y: 80 }, 3);
+                
+                // Away Pressing Front Line
+                const pressCount = Math.min(outfieldCount, 3);
+                for (let i = 0; i < pressCount; i++) {
+                    const y = 30 + (i * (40 / Math.max(pressCount - 1, 1)));
+                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 28 + (i%2)*5, y: y }, aIdx++);
+                }
+
+                // Home Midfielders
+                const hasStriker = outfieldCount > 2;
+                const homeMidsNeeded = Math.max(0, outfieldCount - 2 - (hasStriker ? 1 : 0));
+                
+                if (homeMidsNeeded > 0) {
+                    const startY = 15;
+                    const endY = 85;
+                    const step = (endY - startY) / (homeMidsNeeded + 1);
+                    for(let i=0; i < homeMidsNeeded; i++) {
+                        addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 35 + (i%2)*3, y: startY + (step * (i+1)) }, hIdx++);
+                    }
+                }
+                
+                if (hasStriker) {
+                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 48, y: 50 }, hIdx++);
+                }
+
+                // Away Defenders
+                const awayDefNeeded = outfieldCount - pressCount;
+                if (awayDefNeeded > 0) {
+                    const startY = 20;
+                    const endY = 80;
+                    const step = (endY - startY) / (awayDefNeeded + 1);
+                    for(let i=0; i < awayDefNeeded; i++) {
+                        addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 65 - (i%2)*5, y: startY + (step * (i+1)) }, aIdx++);
+                    }
+                }
+
+            } else if (scenario === 'corner') {
+                addPlayer(`a-p-${aIdx++}`, 'away', 'Player', { x: 2, y: 2 }, 2);
+                const boxCountH = Math.min(outfieldCount, 5);
+                const boxCountA = Math.min(outfieldCount - 1, 4);
+                for(let i=0; i<boxCountH; i++) addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 5 + (Math.random()*10), y: 35 + (Math.random()*25) }, hIdx++);
+                for(let i=0; i<boxCountA; i++) addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 7 + (Math.random()*10), y: 35 + (Math.random()*25) }, aIdx++);
+                while(hIdx <= squadSize) addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 25, y: 40 + (Math.random()*20) }, hIdx++);
+                while(aIdx <= squadSize) addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 25, y: 40 + (Math.random()*20) }, aIdx++);
+
+            } else if (scenario === 'throw_in') {
+                addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 50, y: 1 }, 2);
+                const remainingHome = squadSize - hIdx + 1;
+                for (let i = 0; i < remainingHome; i++) {
+                    const x = 35 + (Math.random() * 30);
+                    const y = 10 + (Math.random() * 50);
+                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x, y }, hIdx++);
+                }
+                const remainingAway = squadSize - aIdx + 1;
+                for (let i = 0; i < remainingAway; i++) {
+                    const x = 35 + (Math.random() * 30);
+                    const y = 10 + (Math.random() * 50);
+                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x, y }, aIdx++);
+                }
+
+            } else if (scenario === 'counter_attack') {
+                addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 40, y: 50 }, 10);
+                if (outfieldCount > 1) addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 60, y: 20 }, 7); 
+                if (outfieldCount > 2) addPlayer(`h-p-${hIdx++}`, 'home', 'Player', { x: 60, y: 80 }, 11); 
+                if (outfieldCount > 0) addPlayer(`a-p-${aIdx++}`, 'away', 'Player', { x: 65, y: 50 }, 4); 
+                if (outfieldCount > 1) addPlayer(`a-p-${aIdx++}`, 'away', 'Player', { x: 55, y: 30 }, 2); 
+                const strandedCount = Math.max(0, outfieldCount - 2);
+                for(let i=0; i<strandedCount; i++) {
+                    addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 20 + (Math.random()*10), y: 20 + (Math.random()*60) }, aIdx++);
+                }
+                while(hIdx <= squadSize) {
+                    addPlayer(`h-p-${hIdx}`, 'home', 'Player', { x: 25 + (Math.random()*5), y: 30 + (Math.random()*40) }, hIdx++);
+                }
+                while(aIdx <= squadSize) addPlayer(`a-p-${aIdx}`, 'away', 'Player', { x: 50, y: 50 }, aIdx++);
+            }
+
+            return entities;
+        };
+
+        // --- COMPONENTS ---
+
+        const Controls = ({ config, onConfigChange, toolMode, onToolChange, onClearAnnotations, onResetBoard, onLoadScenario, onUndo, canUndo }) => {
+            return (
+                <div className="flex flex-row items-center gap-3 px-3 py-2 w-full max-w-[100vw] overflow-x-auto no-scrollbar touch-pan-x bg-gray-800 text-sm h-14 md:h-16">
+                
+                <div className="hidden lg:block font-bold text-white whitespace-nowrap mr-2">
+                    Tactic<span className="text-indigo-500">Pro</span>
+                </div>
+
+                <div className="flex items-center gap-1 bg-gray-700/50 rounded-lg p-1 flex-shrink-0">
+                    {SQUAD_SIZES.map(size => (
+                    <button
+                        key={size}
+                        onClick={() => onConfigChange({ ...config, squadSize: size })}
+                        className={`w-7 h-7 md:w-8 md:h-8 flex items-center justify-center rounded text-xs md:text-sm font-bold transition-all ${
+                        config.squadSize === size 
+                            ? 'bg-indigo-600 text-white shadow-sm' 
+                            : 'text-gray-400 hover:text-white hover:bg-gray-600'
+                        }`}
+                        title={`${size}v${size}`}
+                    >
+                        {size}
+                    </button>
+                    ))}
+                </div>
+
+                <div className="w-px h-8 bg-gray-700 mx-1 flex-shrink-0"></div>
+
+                <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => onLoadScenario('kickoff')} className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors" title="Kickoff / Reset">
+                        <RotateCcw size={18} />
+                    </button>
+                    <button onClick={() => onLoadScenario('goal_kick')} className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors" title="Goal Kick">
+                        <Goal size={18} />
+                    </button>
+                    <button onClick={() => onLoadScenario('corner')} className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors" title="Corner Kick">
+                        <Flag size={18} />
+                    </button>
+                    <button onClick={() => onLoadScenario('throw_in')} className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors" title="Throw-in">
+                        <Footprints size={18} />
+                    </button>
+                    <button onClick={() => onLoadScenario('counter_attack')} className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors" title="Counter Attack">
+                        <ArrowRightLeft size={18} />
+                    </button>
+                </div>
+
+                <div className="w-px h-8 bg-gray-700 mx-1 flex-shrink-0"></div>
+
+                <div className="flex items-center gap-1 bg-gray-700/50 p-1 rounded-lg flex-shrink-0">
+                    <button
+                    onClick={() => onToolChange('interact')}
+                    className={`p-2 rounded md:px-3 md:py-1.5 flex items-center gap-2 transition-colors ${
+                        toolMode === 'interact' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-600'
+                    }`}
+                    title="Interact (Move/Draw)"
+                    >
+                    <MousePointer2 size={18} />
+                    <span className="hidden md:inline font-medium">Interact</span>
+                    </button>
+                    
+                    <button
+                    onClick={() => onToolChange('erase')}
+                    className={`p-2 rounded md:px-3 md:py-1.5 flex items-center gap-2 transition-colors ${
+                        toolMode === 'erase' ? 'bg-red-600 text-white' : 'text-gray-300 hover:bg-gray-600'
+                    }`}
+                    title="Eraser"
+                    >
+                    <Eraser size={18} />
+                    <span className="hidden md:inline font-medium">Erase</span>
+                    </button>
+                </div>
+
+                <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                    onClick={onUndo}
+                    disabled={!canUndo}
+                    className={`p-2 rounded transition-colors ${
+                        canUndo ? 'text-gray-300 hover:text-white hover:bg-gray-700' : 'text-gray-600 cursor-not-allowed'
+                    }`}
+                    title="Undo Last Drawing"
+                    >
+                    <Undo2 size={18} />
+                    </button>
+
+                    <button
+                    onClick={onClearAnnotations}
+                    className="p-2 text-gray-300 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                    title="Clear Drawings Only"
+                    >
+                    <Trash2 size={18} />
+                    </button>
+                </div>
+
+                <div className="w-px h-8 bg-gray-700 mx-1 flex-shrink-0"></div>
+
+                <div className="flex items-center gap-2 flex-shrink-0 ml-auto md:ml-0">
+                    <div className="relative group">
+                    <input 
+                        type="color" 
+                        value={config.homeColor}
+                        onChange={(e) => onConfigChange({...config, homeColor: e.target.value})}
+                        className="w-8 h-8 rounded border-0 p-0 overflow-hidden cursor-pointer"
+                    />
+                    <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-gray-800 text-[8px] flex items-center justify-center rounded-full text-white font-bold pointer-events-none">H</div>
+                    </div>
+                    <div className="relative group">
+                    <input 
+                        type="color" 
+                        value={config.awayColor}
+                        onChange={(e) => onConfigChange({...config, awayColor: e.target.value})}
+                        className="w-8 h-8 rounded border-0 p-0 overflow-hidden cursor-pointer"
+                    />
+                    <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-gray-800 text-[8px] flex items-center justify-center rounded-full text-white font-bold pointer-events-none">A</div>
+                    </div>
+                </div>
+
+                </div>
+            );
+        };
+
+        const TacticsBoard = ({
+            entities,
+            onEntitiesChange,
+            config,
+            toolMode,
+            annotations,
+            onAnnotationsChange,
+            onDragStart
+        }) => {
+            const boardRef = useRef(null);
+            const [activeDragId, setActiveDragId] = useState(null);
+            const [drawingPath, setDrawingPath] = useState(null);
+            const [dribblingOffset, setDribblingOffset] = useState(null);
+
+            const getCoords = useCallback((e) => {
+                if (!boardRef.current) return { x: 0, y: 0 };
+                const rect = boardRef.current.getBoundingClientRect();
+                const rawX = e.clientX - rect.left;
+                const rawY = e.clientY - rect.top;
+                
+                const x = Math.max(0, Math.min(100, (rawX / rect.width) * 100));
+                const y = Math.max(0, Math.min(100, (rawY / rect.height) * 100));
+                return { x, y };
+            }, []);
+
+            const handlePointerDown = (e) => {
+                e.preventDefault(); 
+                e.stopPropagation();
+
+                if (!boardRef.current) return;
+                const rect = boardRef.current.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const clickY = e.clientY - rect.top;
+
+                if (toolMode === 'interact') {
+                let bestCandidate = null;
+                let minDistance = Infinity;
+                const TOUCH_TARGET_RADIUS_PX = 30;
+
+                entities.forEach(ent => {
+                    const entX = (ent.pos.x / 100) * rect.width;
+                    const entY = (ent.pos.y / 100) * rect.height;
+                    const dist = Math.hypot(entX - clickX, entY - clickY);
+                    
+                    if (dist < TOUCH_TARGET_RADIUS_PX && dist < minDistance) {
+                    minDistance = dist;
+                    bestCandidate = ent.id;
+                    }
+                });
+
+                if (bestCandidate) {
+                    if (onDragStart) onDragStart();
+                    setActiveDragId(bestCandidate);
+                    
+                    if (bestCandidate !== 'ball') {
+                    const player = entities.find(e => e.id === bestCandidate);
+                    const ball = entities.find(e => e.type === 'ball');
+                    
+                    if (player && ball) {
+                        const pX = (player.pos.x / 100) * rect.width;
+                        const pY = (player.pos.y / 100) * rect.height;
+                        const bX = (ball.pos.x / 100) * rect.width;
+                        const bY = (ball.pos.y / 100) * rect.height;
+                        const TOUCH_DISTANCE_PX = 50; 
+                        
+                        if (Math.hypot(pX - bX, pY - bY) < TOUCH_DISTANCE_PX) {
+                        setDribblingOffset({
+                            x: ball.pos.x - player.pos.x,
+                            y: ball.pos.y - player.pos.y
+                        });
+                        }
+                    }
+                    }
+                    
+                    e.target.setPointerCapture(e.pointerId);
+                } else {
+                    const coords = getCoords(e);
+                    setDrawingPath([coords]);
+                    e.target.setPointerCapture(e.pointerId);
+                }
+                }
+            };
+
+            const handlePointerMove = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const coords = getCoords(e);
+
+                if (activeDragId) {
+                onEntitiesChange(entities.map(ent => {
+                    if (ent.id === activeDragId) {
+                    return { ...ent, pos: coords };
+                    }
+                    if (dribblingOffset && ent.type === 'ball') {
+                    return { 
+                        ...ent, 
+                        pos: { 
+                        x: coords.x + dribblingOffset.x, 
+                        y: coords.y + dribblingOffset.y 
+                        } 
+                    };
+                    }
+                    return ent;
+                }));
+                } else if (drawingPath) {
+                setDrawingPath(prev => [...(prev || []), coords]);
+                } else if (toolMode === 'erase' && e.buttons > 0) {
+                    const ERASER_RADIUS = 3; 
+                    const pathsToDelete = new Set();
+                    
+                    annotations.forEach(ann => {
+                        for (const p of ann.points) {
+                            if (Math.hypot(p.x - coords.x, p.y - coords.y) < ERASER_RADIUS) {
+                                pathsToDelete.add(ann.id);
+                                break;
+                            }
+                        }
+                    });
+                    
+                    if (pathsToDelete.size > 0) {
+                        onAnnotationsChange(annotations.filter(a => !pathsToDelete.has(a.id)));
+                    }
+                }
+            };
+
+            const handlePointerUp = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (activeDragId) {
+                setActiveDragId(null);
+                setDribblingOffset(null);
+                }
+                if (drawingPath) {
+                if (drawingPath.length > 2) {
+                    const newPath = {
+                    id: Date.now().toString(),
+                    points: drawingPath,
+                    color: DEFAULT_COLORS.draw
+                    };
+                    onAnnotationsChange([...annotations, newPath]);
+                }
+                setDrawingPath(null);
+                }
+                if (e.target.hasPointerCapture(e.pointerId)) {
+                    e.target.releasePointerCapture(e.pointerId);
+                }
+            };
+
+            const pointsToSvgPath = (points) => {
+                if (points.length === 0) return '';
+                const start = points[0];
+                let d = `M ${start.x} ${start.y}`;
+                for (let i = 1; i < points.length; i++) {
+                d += ` L ${points[i].x} ${points[i].y}`;
+                }
+                return d;
+            };
+
+            return (
+                <div 
+                className={`relative w-full h-full select-none overflow-hidden rounded-lg shadow-2xl border-4 border-gray-700 bg-green-700 touch-none ${toolMode === 'erase' ? 'cursor-crosshair' : ''}`}
+                ref={boardRef}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onPointerLeave={handlePointerUp}
+                >
+                <div className="absolute inset-0 pointer-events-none opacity-90">
+                    <div className="w-full h-full flex flex-row">
+                    {Array.from({ length: 12 }).map((_, i) => (
+                        <div key={i} className={`flex-1 ${i % 2 === 0 ? 'bg-[#3a8f3d]' : 'bg-[#43a047]'}`} />
+                    ))}
+                    </div>
+                    
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full stroke-white stroke-[0.5] fill-none opacity-80">
+                    <rect x="2" y="2" width="96" height="96" />
+                    <line x1="50" y1="2" x2="50" y2="98" />
+                    <circle cx="50" cy="50" r="8" />
+                    <circle cx="50" cy="50" r="0.5" fill="white" />
+                    
+                    <rect x="2" y="25" width="12" height="50" />
+                    <rect x="2" y="38" width="5" height="24" />
+                    
+                    <rect x="86" y="25" width="12" height="50" />
+                    <rect x="93" y="38" width="5" height="24" />
+                    
+                    <path d="M 4 2 A 2 2 0 0 1 2 4" />
+                    <path d="M 96 2 A 2 2 0 0 0 98 4" />
+                    <path d="M 2 96 A 2 2 0 0 0 4 98" />
+                    <path d="M 98 96 A 2 2 0 0 1 96 98" />
+                    </svg>
+                </div>
+
+                <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    {annotations.map(ann => (
+                    <path
+                        key={ann.id}
+                        d={pointsToSvgPath(ann.points)}
+                        stroke={ann.color}
+                        strokeWidth="0.8"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                    ))}
+                    {drawingPath && (
+                    <path
+                        d={pointsToSvgPath(drawingPath)}
+                        stroke={DEFAULT_COLORS.draw}
+                        strokeWidth="0.8"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="opacity-70"
+                    />
+                    )}
+                </svg>
+
+                {entities.map(ent => {
+                    let bgColor = '#fff';
+                    let borderColor = '#000';
+                    let textColor = '#fff';
+
+                    if (ent.type === 'ball') {
+                    bgColor = '#ffffff';
+                    borderColor = '#000';
+                    } else {
+                    if (ent.role === 'GK') {
+                        bgColor = DEFAULT_COLORS.gk;
+                        borderColor = '#b45309';
+                        textColor = '#000';
+                    } else if (ent.side === 'home') {
+                        bgColor = config.homeColor;
+                        borderColor = 'white';
+                        textColor = '#fff';
+                    } else {
+                        bgColor = config.awayColor;
+                        borderColor = 'white';
+                        textColor = '#fff';
+                    }
+                    }
+
+                    const isBall = ent.type === 'ball';
+                    const isInteractive = toolMode === 'interact';
+
+                    return (
+                    <div
+                        key={ent.id}
+                        className={`absolute flex items-center justify-center rounded-full shadow-md z-20 transform -translate-x-1/2 -translate-y-1/2 transition-transform ${isBall ? 'border-2 border-black overflow-hidden bg-white' : 'border-2'} ${activeDragId === ent.id ? 'scale-125 cursor-grabbing z-30' : 'cursor-grab'} ${!isInteractive ? 'pointer-events-none' : ''}`}
+                        style={{
+                        left: `${ent.pos.x}%`,
+                        top: `${ent.pos.y}%`,
+                        backgroundColor: isBall ? '#ffffff' : bgColor,
+                        borderColor: borderColor,
+                        color: textColor,
+                        width: isBall ? '4vmin' : '6vmin', 
+                        height: isBall ? '4vmin' : '6vmin',
+                        minWidth: isBall ? '24px' : '32px',
+                        minHeight: isBall ? '24px' : '32px',
+                        maxWidth: isBall ? '32px' : '48px',
+                        maxHeight: isBall ? '32px' : '48px',
+                        }}
+                    >
+                        {isBall ? (
+                        <>
+                            <div className="absolute w-[45%] h-[45%] bg-black top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ clipPath: 'polygon(50% 0%, 95% 38%, 81% 100%, 19% 100%, 5% 38%)' }}></div>
+                            <div className="absolute w-[30%] h-[30%] bg-black -top-[10%] left-1/2 -translate-x-1/2 rounded-full"></div>
+                            <div className="absolute w-[30%] h-[30%] bg-black bottom-[10%] -left-[5%] rounded-full"></div>
+                            <div className="absolute w-[30%] h-[30%] bg-black bottom-[10%] -right-[5%] rounded-full"></div>
+                        </>
+                        ) : (
+                        <span className="font-bold text-[10px] sm:text-xs select-none">{ent.number}</span>
+                        )}
+                    </div>
+                    );
+                })}
+                </div>
+            );
+        };
+
+        // --- APP ---
+
+        const App = () => {
+            const [config, setConfig] = useState({
+                squadSize: 7,
+                homeColor: DEFAULT_COLORS.home,
+                awayColor: DEFAULT_COLORS.away,
+            });
+
+            const [entities, setEntities] = useState([]);
+            const [annotations, setAnnotations] = useState([]);
+            const [history, setHistory] = useState([]);
+            const [toolMode, setToolMode] = useState('interact');
+
+            useEffect(() => {
+                setEntities(generateInitialEntities(config.squadSize, 'kickoff'));
+                setAnnotations([]); 
+                setHistory([]);
+            }, [config.squadSize]);
+
+            const saveHistory = () => {
+                setHistory(prev => [...prev, { 
+                entities: JSON.parse(JSON.stringify(entities)),
+                annotations: [...annotations] 
+                }]);
+            };
+
+            const handleAnnotationsChange = (newAnnotations) => {
+                saveHistory(); 
+                setAnnotations(newAnnotations);
+            };
+
+            const handleDragStart = () => {
+                saveHistory();
+            };
+
+            const handleUndo = () => {
+                if (history.length === 0) return;
+                const previous = history[history.length - 1];
+                setHistory(prev => prev.slice(0, -1));
+                setEntities(previous.entities);
+                setAnnotations(previous.annotations);
+            };
+
+            const handleLoadScenario = (scenario) => {
+                setEntities(generateInitialEntities(config.squadSize, scenario));
+                setAnnotations([]);
+                setHistory([]);
+            };
+
+            const handleResetBoard = () => {
+                handleLoadScenario('kickoff');
+            };
+
+            return (
+                <div className="flex flex-col h-screen w-screen bg-gray-900 overflow-hidden">
+                
+                <header className="bg-gray-800 border-b border-gray-700 shadow-lg z-30 flex-shrink-0">
+                    <Controls 
+                        config={config}
+                        onConfigChange={setConfig}
+                        toolMode={toolMode}
+                        onToolChange={setToolMode}
+                        onClearAnnotations={() => handleAnnotationsChange([])}
+                        onResetBoard={handleResetBoard}
+                        onLoadScenario={handleLoadScenario}
+                        onUndo={handleUndo}
+                        canUndo={history.length > 0}
+                    />
+                </header>
+
+                <main className="flex-1 relative flex items-center justify-center p-2 md:p-4 bg-black/20 overflow-hidden">
+                    <div className="relative w-full max-w-[900px] aspect-[3/2] shadow-2xl">
+                    <TacticsBoard
+                        entities={entities}
+                        onEntitiesChange={setEntities}
+                        config={config}
+                        toolMode={toolMode}
+                        annotations={annotations}
+                        onAnnotationsChange={handleAnnotationsChange}
+                        onDragStart={handleDragStart}
+                    />
+                    </div>
+                </main>
+                
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
